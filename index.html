@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LoreKeeper Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --container-bg: rgba(30, 41, 59, 0.4);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --user-bubble: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            --ai-bubble: rgba(30, 41, 59, 0.8);
+            --font-family: 'Inter', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background: radial-gradient(circle at top center, #1e1b4b, var(--bg-color));
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 900px;
+            height: 90vh;
+            background: var(--container-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            padding: 20px 30px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background: rgba(0,0,0,0.1);
+        }
+
+        .header-dot {
+            width: 10px;
+            height: 10px;
+            background: #10b981;
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
+        }
+
+        .header-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .chat-history {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            scroll-behavior: smooth;
+        }
+
+        .chat-history::-webkit-scrollbar {
+            width: 6px;
+        }
+        .chat-history::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+
+        .message-row {
+            display: flex;
+            width: 100%;
+        }
+
+        .message-row.user {
+            justify-content: flex-end;
+        }
+
+        .bubble {
+            max-width: 75%;
+            padding: 18px 24px;
+            border-radius: 20px;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .bubble.user {
+            background: var(--user-bubble);
+            border-bottom-right-radius: 4px;
+            color: #fff;
+            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.2);
+        }
+
+        .bubble.ai {
+            background: var(--ai-bubble);
+            border: 1px solid var(--border-color);
+            border-bottom-left-radius: 4px;
+        }
+
+        /* Markdown-style formatting inside bubble */
+        .bubble.ai strong { color: #fff; }
+        .bubble.ai p { margin-bottom: 10px; }
+        .bubble.ai p:last-child { margin-bottom: 0; }
+
+        .action-items-container {
+            margin-top: 15px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 14px;
+            padding: 15px 20px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .action-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .action-item:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+
+        .action-checkbox {
+            appearance: none;
+            width: 22px;
+            height: 22px;
+            border: 2px solid var(--accent);
+            border-radius: 6px;
+            cursor: pointer;
+            position: relative;
+            flex-shrink: 0;
+            margin-top: 2px;
+            transition: all 0.2s ease;
+            background: rgba(0,0,0,0.3);
+        }
+
+        .action-checkbox:checked {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .action-checkbox:checked::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        .action-text {
+            font-size: 0.95rem;
+            line-height: 1.5;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+            color: var(--text-primary);
+        }
+
+        .action-checkbox:checked + .action-text {
+            text-decoration: line-through;
+            color: var(--text-secondary);
+        }
+
+        .typing-indicator {
+            display: none;
+            align-items: center;
+            gap: 6px;
+            padding: 16px 24px;
+            background: var(--ai-bubble);
+            border-radius: 20px;
+            border-bottom-left-radius: 4px;
+            width: fit-content;
+            border: 1px solid var(--border-color);
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            background: var(--text-secondary);
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        .dot:nth-child(1) { animation-delay: -0.32s; }
+        .dot:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        .chat-input-wrapper {
+            padding: 24px 30px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 15px;
+            background: rgba(0,0,0,0.15);
+        }
+
+        .chat-input {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 16px 20px;
+            color: var(--text-primary);
+            font-family: var(--font-family);
+            font-size: 1rem;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .chat-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .chat-input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .send-btn {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 14px;
+            padding: 0 24px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .send-btn:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+        }
+
+        .send-btn:active {
+            transform: translateY(1px);
+        }
+        
+        .send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="chat-container">
+        <div class="chat-header">
+            <div class="header-dot"></div>
+            <div class="header-title">LoreKeeper / Chief of Staff</div>
+        </div>
+
+        <div class="chat-history" id="chat-history">
+            <div class="message-row ai">
+                <div class="bubble ai">
+                    <strong>System Initialized.</strong><br><br>I am ready to process tasks, organize your schedule, and execute your strategy. What is our current objective?
+                </div>
+            </div>
+        </div>
+
+        <div class="message-row ai" style="padding: 0 30px; margin-top: -10px;">
+            <div class="typing-indicator" id="typing-indicator">
+                <div class="dot"></div>
+                <div class="dot"></div>
+                <div class="dot"></div>
+            </div>
+        </div>
+
+        <div class="chat-input-wrapper">
+            <input type="text" id="chat-input" class="chat-input" placeholder="Message your agent..." autocomplete="off">
+            <button class="send-btn" id="send-btn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const chatHistory = document.getElementById('chat-history');
+        const chatInput = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('send-btn');
+        const typingIndicator = document.getElementById('typing-indicator');
+
+        // FastAPI Endpoint Address
+        const API_URL = 'http://127.0.0.1:8080/discord-bot-receiver';
+
+        function appendUserMessage(text) {
+            const row = document.createElement('div');
+            row.className = 'message-row user';
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble user';
+            bubble.textContent = text;
+            row.appendChild(bubble);
+            chatHistory.appendChild(row);
+            scrollToBottom();
+        }
+
+        function appendAIMessage(reply, actionItems = []) {
+            const row = document.createElement('div');
+            row.className = 'message-row ai';
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble ai';
+            
+            // Format basic line breaks
+            const formattedReply = reply.replace(/\n/g, '<br>');
+            bubble.innerHTML = `<p>${formattedReply}</p>`;
+
+            // Render Stylized Checklist Array
+            if (actionItems && actionItems.length > 0) {
+                const listContainer = document.createElement('div');
+                listContainer.className = 'action-items-container';
+                
+                actionItems.forEach((item, index) => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'action-item';
+                    
+                    const checkboxId = `cb-${Date.now()}-${index}`;
+                    
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.className = 'action-checkbox';
+                    checkbox.id = checkboxId;
+                    
+                    const label = document.createElement('label');
+                    label.htmlFor = checkboxId;
+                    label.className = 'action-text';
+                    label.textContent = item;
+                    
+                    itemDiv.appendChild(checkbox);
+                    itemDiv.appendChild(label);
+                    listContainer.appendChild(itemDiv);
+                });
+                
+                bubble.appendChild(listContainer);
+            }
+            
+            row.appendChild(bubble);
+            chatHistory.appendChild(row);
+            scrollToBottom();
+        }
+
+        function appendError(errorText) {
+            const row = document.createElement('div');
+            row.className = 'message-row ai';
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble ai';
+            bubble.style.border = '1px solid rgba(239, 68, 68, 0.5)';
+            bubble.style.color = '#fca5a5';
+            bubble.textContent = `Server Error: ${errorText}`;
+            row.appendChild(bubble);
+            chatHistory.appendChild(row);
+            scrollToBottom();
+        }
+
+        function scrollToBottom() {
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const message = chatInput.value.trim();
+            if (!message) return;
+
+            // UI updates
+            appendUserMessage(message);
+            chatInput.value = '';
+            chatInput.disabled = true;
+            sendBtn.disabled = true;
+            typingIndicator.style.display = 'flex';
+            scrollToBottom();
+
+            // Construct payload to mimic Discord webhook
+            const payload = {
+                content: message,
+                author: "WebClient"
+            };
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const data = await response.json();
+                
+                // Parse returned strict JSON Schema
+                const reply = data.reply || 'Strategy processed successfully.';
+                const actionItems = data.action_items || [];
+
+                appendAIMessage(reply, actionItems);
+
+            } catch (error) {
+                console.error("Fetch error:", error);
+                appendError(error.message + ". Make sure your FastAPI backend is running locally and CORS is enabled.");
+            } finally {
+                typingIndicator.style.display = 'none';
+                chatInput.disabled = false;
+                sendBtn.disabled = false;
+                chatInput.focus();
+                scrollToBottom();
+            }
+        }
+
+        // Event Listeners
+        sendBtn.addEventListener('click', sendMessage);
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        // Focus input on load
+        window.onload = () => chatInput.focus();
+    </script>
+</body>
+</html>

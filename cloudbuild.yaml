@@ -1,0 +1,8 @@
+steps:
+# Build the Docker container image
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/lorekeeper-backend:latest', '.']
+
+# Push the container image to the Google Container Registry
+images:
+- 'gcr.io/$PROJECT_ID/lorekeeper-backend:latest'

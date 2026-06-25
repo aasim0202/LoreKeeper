@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+requests
+qdrant-client
+google-genai
+google-auth
+google-api-python-client
+pydantic
+python-dotenv==1.0.1
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+google-api-python-client
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib

@@ -1,0 +1,20 @@
+# Secret Environment Variables
+.env
+.env.example
+.env.template
+api-keys.txt
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Git
+.git/
+.gitignore
+
+# Markdown / Local Setup Files
+DEPLOYMENT.md
+README.md
+index.html
