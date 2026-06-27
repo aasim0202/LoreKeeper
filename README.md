@@ -1,24 +1,25 @@
-# 🌌 LoreKeeper 3.0: Chief of Staff AI Agent
+# LoreKeeper — Chief of Staff AI Agent
 
-LoreKeeper is a production-grade, highly autonomous RAG (Retrieval-Augmented Generation) productivity agent designed to serve as a digital "Chief of Staff". Powered by Google's **Gemini 3.5 Flash**, LoreKeeper ingests data from your active workspaces and orchestrates complex schedules, tasks, and strategy execution.
+> Production-grade, highly autonomous RAG productivity agent. Enriches user queries with real-time web data and personal workspaces (Notion, Google Tasks), grounds it via vector memory, and uses Gemini 3.5 Flash to generate a **structured, validated, and actionable** strategy response.
 
-## 🚀 Key Features
+![Python](https://img.shields.io/badge/Python-3.11+-blue.svg) ![FastAPI](https://img.shields.io/badge/FastAPI-0.135-teal.svg) ![Gemini](https://img.shields.io/badge/Gemini-3.5_Flash-orange.svg) ![Qdrant](https://img.shields.io/badge/Qdrant-RAG-red.svg) ![Cloud Run](https://img.shields.io/badge/GCP-Cloud_Run-blue.svg)
 
-- **Multi-Source Ingestion**: Automatically syncs and scrapes data from Notion databases, Google Tasks, Tavily (real-time web search), and Jina AI markdown scrapers.
-- **Persistent Vector Memory**: Utilizes a Qdrant Cloud cluster and `gemini-embedding-2` models to semantically chunk and recall past context natively.
-- **Strict JSON Intelligence**: Gemini is prompt-engineered to enforce strict JSON schemas, automatically generating action items and checklists instead of unstructured text walls.
-- **Sleek Standalone UI**: Includes a custom-built, glassmorphism dark-mode HTML/JS frontend that interacts with the API and renders dynamic task lists.
-- **Discord Bot Ready**: Exposes a `/discord-bot-receiver` endpoint specifically tailored for Discord webhook payloads.
-- **Cloud Run Optimized**: Pre-configured with a lightweight `python:3.11-slim` Docker container and `cloudbuild.yaml` for instant serverless deployment on Google Cloud Run.
+> Full deployment walkthrough: see [DEPLOYMENT.md](DEPLOYMENT.md).
 
-## 🛠️ Technology Stack
-- **Backend Framework**: FastAPI & Uvicorn
-- **AI Core**: Google GenAI SDK (Gemini 3.5 Flash)
-- **Database**: Qdrant Vector Search
-- **Deployment**: Google Cloud Build & Cloud Run
-- **Frontend**: Vanilla HTML / CSS / JavaScript
+## Architecture
 
-## 📦 Local Installation
+```text
+Frontend (HTML)  ──POST /discord-bot-receiver──▶  JSON Payload
+      │
+FastAPI Backend
+      ├── Step 1 → Ingestion     Fetch Notion, Google Tasks, Tavily (Web), Jina AI
+      ├── Step 2 → Qdrant DB     Chunk markdown, embed (gemini-embedding-2), top-5 RAG retrieval
+      ├── Step 3 → Gemini 3.5    Inject context bundle into strict Chief of Staff prompt
+      ├── Step 4 → JSON Parsing  Extract 'reply' string and 'action_items' array
+      └── Step 5 → Output        Return strict JSON to Frontend / Discord Webhook
+```
+
+## Local Installation
 
 1. **Clone the repository:**
    ```bash
@@ -28,7 +29,7 @@ LoreKeeper is a production-grade, highly autonomous RAG (Retrieval-Augmented Gen
 
 2. **Install dependencies:**
    ```bash
-   pip install -r requirements.txt
+   pip install --no-cache-dir -r requirements.txt
    ```
 
 3. **Configure Environment Variables:**
@@ -49,11 +50,4 @@ LoreKeeper is a production-grade, highly autonomous RAG (Retrieval-Augmented Gen
    *(The server will start locally at `http://127.0.0.1:8080`)*
 
 5. **Launch the UI:**
-   Simply open `index.html` in your web browser to access your Chief of Staff dashboard!
-
-## ☁️ Cloud Deployment
-
-For detailed deployment instructions mapping to Google Cloud Run, refer to the included [DEPLOYMENT.md](DEPLOYMENT.md) guide.
-
----
-*Architected and Built for the Vibe2Ship Hackathon.*
+   Simply open `index.html` in your web browser to access your dashboard.
