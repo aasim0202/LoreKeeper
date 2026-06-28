@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize the GenAI Client for gemini-1.5-flash
 try:
-    genai_client = genai.Client(http_options={'api_version': 'v1'})
+    genai_client = genai.Client(http_options={'api_version': 'v1beta'})
 except Exception as e:
     logger.warning(f"Could not initialize Google GenAI Client: {e}")
     genai_client = None
@@ -57,12 +57,16 @@ def process_user_query(user_message: str, collection_name: str = "lorekeeper_mem
     """
     Queries Qdrant for past context, uses Tavily if real-time data is needed,
     and injects everything into a strict Chief of Staff prompt.
-    Forces Gemini 3.1 Pro to return a strict JSON schema containing a reply and action_items.
+    Returns a JSON string containing reply, action_items, and sources.
     """
     if not genai_client:
         raise ValueError("Google GenAI client is not initialized. Please ensure GEMINI_API_KEY is set.")
         
     logger.info(f"Processing user query: '{user_message}'")
+    
+    # Structured sources collectors
+    memory_sources = []
+    web_sources = []
     
     # 1. Retrieve relevant past context from Qdrant vector database
     logger.info("Generating embedding for the user message...")
@@ -81,6 +85,7 @@ def process_user_query(user_message: str, collection_name: str = "lorekeeper_mem
                 payload = hit.payload or {}
                 text = payload.get("text", "")
                 qdrant_context += f"- [Memory Context Score {hit.score:.2f}]: {text}\n"
+                memory_sources.append({"text": text[:200], "score": round(hit.score, 2)})
         except Exception as e:
             logger.error(f"Error querying Qdrant memory cluster: {e}")
             qdrant_context = "Warning: Qdrant retrieval failed.\n"
@@ -93,6 +98,10 @@ def process_user_query(user_message: str, collection_name: str = "lorekeeper_mem
         if web_data and "results" in web_data:
             for res in web_data["results"]:
                 tavily_context += f"- {res.get('title')}: {res.get('content')}\n"
+                web_sources.append({
+                    "title": res.get("title", "Untitled"),
+                    "url": res.get("url", "")
+                })
 
     # 3. Inject context into a strict Chief of Staff system prompt
     bundled_context = f"""
@@ -120,7 +129,7 @@ def process_user_query(user_message: str, collection_name: str = "lorekeeper_mem
 
     try:
         response = genai_client.models.generate_content(
-            model='gemini-3.5-flash',
+            model='gemini-2.0-flash-lite',
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.2  # Keep execution analytical and deterministic
@@ -133,10 +142,21 @@ def process_user_query(user_message: str, collection_name: str = "lorekeeper_mem
             raw_text = raw_text[7:]
         if raw_text.endswith("```"):
             raw_text = raw_text[:-3]
-            
-        return raw_text.strip()
+        
+        # Parse the LLM response and inject the sources metadata
+        parsed = json.loads(raw_text.strip())
+        parsed["sources"] = {
+            "memory": memory_sources,
+            "web": web_sources
+        }
+        return json.dumps(parsed)
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse Gemini response as JSON: {raw_text[:200]}")
+        fallback = {"reply": raw_text.strip(), "action_items": [], "sources": {"memory": memory_sources, "web": web_sources}}
+        return json.dumps(fallback)
     except Exception as e:
         logger.error(f"Error during Gemini processing: {e}")
         # Return fallback JSON matching schema to prevent app crashes
-        fallback = {"reply": f"Internal Error: {e}", "action_items": []}
+        fallback = {"reply": f"Internal Error: {e}", "action_items": [], "sources": {"memory": [], "web": []}}
         return json.dumps(fallback)
+
