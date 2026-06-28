@@ -31,8 +31,12 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
           Tasks
         </button>
+        <button class="nav-link" data-page="memory" id="nav-memory">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+          Memory
+        </button>
         <button class="nav-link" data-page="insights" id="nav-insights">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></polyline></svg>
           Insights
         </button>
         <button class="nav-link" data-page="settings" id="nav-settings">
@@ -103,6 +107,30 @@
           <div class="kanban-cards" id="col-done"></div>
         </div>
       </div>
+
+      <div class="kanban-header" style="margin-top: 40px;">
+        <h2>Notion Backlog</h2>
+        <button id="btn-sync-notion" class="send-btn" style="width:auto; padding: 0 16px;">Sync from Notion</button>
+      </div>
+      <div id="notion-tasks-list" class="recent-list" style="margin-top: 16px; min-height: 100px;">
+        <div style="color:var(--tx-3);font-size:0.875rem;">No tasks loaded. Click Sync to fetch.</div>
+      </div>
+    </div>
+
+    <!-- ═══ MEMORY PAGE ═══ -->
+    <div class="page" id="page-memory">
+      <div class="insights-page">
+        <div class="insights-header" style="display:flex; justify-content:space-between; align-items:flex-start;">
+          <div>
+            <h2>Knowledge Base Explorer</h2>
+            <p>Live view into the Qdrant vector database memory chunks.</p>
+          </div>
+          <button id="btn-refresh-memory" class="send-btn" style="width:auto; padding: 0 16px;">Refresh DB</button>
+        </div>
+        <div id="memory-explorer-list" class="recent-list" style="margin-top: 24px;">
+          <div style="color:var(--tx-3);font-size:0.875rem;">Loading memory chunks...</div>
+        </div>
+      </div>
     </div>
 
     <!-- ═══ INSIGHTS PAGE ═══ -->
@@ -138,6 +166,12 @@
           <h3>Recent Queries</h3>
           <div class="recent-list" id="recent-queries"></div>
         </div>
+        <div class="recent-section" style="margin-top: 32px;">
+          <h3>Pipeline Latency (Last Query)</h3>
+          <div class="recent-list" id="latency-breakdown">
+            <div style="color:var(--tx-3);font-size:0.875rem;">No data yet. Make a query to see performance breakdown.</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -158,6 +192,31 @@
             <label>X-API-Key</label>
             <input type="password" class="settings-input" id="settings-apikey" placeholder="Enter your API key">
           </div>
+          <div class="settings-field" style="flex-direction:row; justify-content:flex-start; align-items:center; margin-top:20px;">
+            <input type="checkbox" id="settings-jina" style="width:auto; margin:0 12px 0 0; cursor:pointer;">
+            <label for="settings-jina" style="margin:0; cursor:pointer;">Enable Jina Web Scraper (Extract URLs in chat)</label>
+          </div>
+          <button class="send-btn" style="margin-top:20px; width:100%;" id="settings-save">Save Settings</button>
+        </div>
+        
+        <div class="settings-group">
+          <div class="settings-group-title" style="display:flex; justify-content:space-between; align-items:center;">
+            Integration Health
+            <button id="btn-check-health" class="send-btn" style="width:auto; padding: 4px 12px; height:auto; min-height:0; border-radius:4px; font-size:12px;">Ping Services</button>
+          </div>
+          <div class="settings-field" style="flex-direction:row; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:12px;">
+            <span>Qdrant Memory</span><span id="health-qdrant" style="color:var(--tx-3); font-family:monospace;">UNKNOWN</span>
+          </div>
+          <div class="settings-field" style="flex-direction:row; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:12px;">
+            <span>Tavily Search</span><span id="health-tavily" style="color:var(--tx-3); font-family:monospace;">UNKNOWN</span>
+          </div>
+          <div class="settings-field" style="flex-direction:row; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:12px;">
+            <span>Notion Workspace</span><span id="health-notion" style="color:var(--tx-3); font-family:monospace;">UNKNOWN</span>
+          </div>
+          <div class="settings-field" style="flex-direction:row; justify-content:space-between;">
+            <span>Gemini LLM</span><span id="health-gemini" style="color:var(--tx-3); font-family:monospace;">UNKNOWN</span>
+          </div>
+        </div>
           <div class="settings-field">
             <button class="settings-btn" id="settings-save">Save Configuration</button>
           </div>

@@ -14,7 +14,9 @@ from google.genai import types
 
 # Inter-module imports
 from src.vector_db import generate_embeddings, qdrant_client
-from src.ingestion import fetch_tavily_context
+from src.ingestion import fetch_tavily_context, scrape_with_jina
+import time
+import re
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -53,7 +55,7 @@ def requires_real_time_search(message: str) -> bool:
 # ------------------------------------------------------------------
 # Core Processing Function
 # ------------------------------------------------------------------
-def process_user_query(user_message: str, collection_name: str = "lorekeeper_memory") -> str:
+def process_user_query(user_message: str, collection_name: str = "lorekeeper_memory", enable_jina: bool = False) -> str:
     """
     Queries Qdrant for past context, uses Tavily if real-time data is needed,
     and injects everything into a strict Chief of Staff prompt.
@@ -64,12 +66,18 @@ def process_user_query(user_message: str, collection_name: str = "lorekeeper_mem
         
     logger.info(f"Processing user query: '{user_message}'")
     
+    latencies = {}
+    start_total = time.perf_counter()
+
     # Structured sources collectors
     memory_sources = []
     web_sources = []
+    jina_sources = []
     
     # 1. Retrieve relevant past context from Qdrant vector database
     logger.info("Generating embedding for the user message...")
+    
+    start_qdrant = time.perf_counter()
     query_embeddings = generate_embeddings([user_message])
     qdrant_context = ""
     
@@ -89,9 +97,12 @@ def process_user_query(user_message: str, collection_name: str = "lorekeeper_mem
         except Exception as e:
             logger.error(f"Error querying Qdrant memory cluster: {e}")
             qdrant_context = "Warning: Qdrant retrieval failed.\n"
+    
+    latencies["qdrant"] = round((time.perf_counter() - start_qdrant) * 1000, 2)
 
     # 2. Use Tavily to search the web if the user's message requires real-time information
     tavily_context = ""
+    start_tavily = time.perf_counter()
     if requires_real_time_search(user_message):
         logger.info("Real-time context requested by heuristic. Searching Tavily...")
         web_data = fetch_tavily_context(user_message)
@@ -102,6 +113,20 @@ def process_user_query(user_message: str, collection_name: str = "lorekeeper_mem
                     "title": res.get("title", "Untitled"),
                     "url": res.get("url", "")
                 })
+    latencies["tavily"] = round((time.perf_counter() - start_tavily) * 1000, 2)
+
+    # 2b. Use Jina to scrape URLs if requested
+    jina_context = ""
+    start_jina = time.perf_counter()
+    if enable_jina:
+        urls = re.findall(r'(https?://[^\s]+)', user_message)
+        for url in urls:
+            logger.info(f"Scraping URL via Jina: {url}")
+            scraped = scrape_with_jina(url)
+            if scraped:
+                jina_context += f"\n--- SCRAPED FROM {url} ---\n{scraped[:2000]}\n"
+                jina_sources.append({"url": url})
+    latencies["jina"] = round((time.perf_counter() - start_jina) * 1000, 2)
 
     # 3. Inject context into a strict Chief of Staff system prompt
     bundled_context = f"""
@@ -110,6 +135,9 @@ def process_user_query(user_message: str, collection_name: str = "lorekeeper_mem
     
     === REAL-TIME WEB CONTEXT (TAVILY) ===
     {tavily_context if tavily_context.strip() else "No real-time web context deemed necessary."}
+    
+    === DIRECT URL SCRAPES (JINA) ===
+    {jina_context if jina_context.strip() else "No direct URLs scraped."}
     """
 
     system_instruction = (
@@ -127,6 +155,7 @@ def process_user_query(user_message: str, collection_name: str = "lorekeeper_mem
 
     logger.info("Feeding bundled knowledge to Gemini...")
 
+    start_gemini = time.perf_counter()
     try:
         response = genai_client.models.generate_content(
             model='gemini-2.0-flash-lite',
@@ -135,6 +164,7 @@ def process_user_query(user_message: str, collection_name: str = "lorekeeper_mem
                 temperature=0.2  # Keep execution analytical and deterministic
             )
         )
+        latencies["gemini"] = round((time.perf_counter() - start_gemini) * 1000, 2)
         
         # Safely strip out markdown formatting if the model still returns it
         raw_text = response.text.strip()
@@ -147,16 +177,23 @@ def process_user_query(user_message: str, collection_name: str = "lorekeeper_mem
         parsed = json.loads(raw_text.strip())
         parsed["sources"] = {
             "memory": memory_sources,
-            "web": web_sources
+            "web": web_sources,
+            "jina": jina_sources
         }
+        
+        latencies["total"] = round((time.perf_counter() - start_total) * 1000, 2)
+        parsed["latency"] = latencies
         return json.dumps(parsed)
     except json.JSONDecodeError:
         logger.error(f"Failed to parse Gemini response as JSON: {raw_text[:200]}")
-        fallback = {"reply": raw_text.strip(), "action_items": [], "sources": {"memory": memory_sources, "web": web_sources}}
+        latencies["total"] = round((time.perf_counter() - start_total) * 1000, 2)
+        fallback = {"reply": raw_text.strip(), "action_items": [], "sources": {"memory": memory_sources, "web": web_sources, "jina": jina_sources}, "latency": latencies}
         return json.dumps(fallback)
     except Exception as e:
         logger.error(f"Error during Gemini processing: {e}")
+        latencies["gemini"] = round((time.perf_counter() - start_gemini) * 1000, 2)
+        latencies["total"] = round((time.perf_counter() - start_total) * 1000, 2)
         # Return fallback JSON matching schema to prevent app crashes
-        fallback = {"reply": f"Internal Error: {e}", "action_items": [], "sources": {"memory": [], "web": []}}
+        fallback = {"reply": f"Internal Error: {e}", "action_items": [], "sources": {"memory": [], "web": [], "jina": []}, "latency": latencies}
         return json.dumps(fallback)
 

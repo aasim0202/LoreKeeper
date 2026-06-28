@@ -84,7 +84,7 @@ qdrant_client = get_qdrant_client()
 
 try:
     # Google GenAI SDK automatically utilizes the GEMINI_API_KEY env variable
-    genai_client = genai.Client(http_options={'api_version': 'v1'})
+    genai_client = genai.Client(http_options={'api_version': 'v1beta'})
 except Exception as e:
     logger.warning(f"Could not initialize Google GenAI Client: {e}")
     genai_client = None

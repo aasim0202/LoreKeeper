@@ -1,0 +1,17 @@
+# Derived from .gitignore but explicitly allows auth tokens needed for Docker build
+.env
+.env.example
+.env.template
+api-keys.txt
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.git/
+.gitignore
+DEPLOYMENT.md
+README.md
+index.html
+
+# NOTE: credentials.json and token.json are intentionally NOT listed here
+# so that gcloud builds submit includes them in the Docker build context.

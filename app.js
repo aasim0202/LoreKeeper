@@ -23,7 +23,8 @@
   let recentQueries = loadState(LS_KEYS.queries, []);
   let settings = loadState(LS_KEYS.settings, {
     url: 'http://127.0.0.1:8080/discord-bot-receiver',
-    apiKey: ''
+    apiKey: '',
+    enableJina: false
   });
 
   // ── DOM REFS ─────────────────────────────────────
@@ -43,6 +44,7 @@
       if (link.dataset.page === 'tasks') renderKanban();
       if (link.dataset.page === 'insights') renderInsights();
       if (link.dataset.page === 'settings') loadSettings();
+      if (link.dataset.page === 'memory') loadMemory();
     });
   });
 
@@ -148,7 +150,7 @@
     typingIndicator.style.display = 'flex';
     scrollToBottom();
 
-    const payload = { content: message, author: 'WebClient' };
+    const payload = { content: message, author: 'WebClient', enable_jina: settings.enableJina };
     const headers = { 'Content-Type': 'application/json' };
     if (settings.apiKey) headers['X-API-Key'] = settings.apiKey;
 
@@ -161,9 +163,12 @@
 
       const reply = data.reply || 'Strategy processed.';
       const actionItems = data.action_items || [];
-      const sources = data.sources || { memory: [], web: [] };
+      const sources = data.sources || { memory: [], web: [], jina: [] };
+      const latency = data.latency || null;
 
       appendAIMessage(reply, actionItems, sources);
+
+      if (latency) saveState('lk_last_latency', latency);
 
       // Push action items to Kanban
       if (actionItems.length > 0) {
@@ -289,17 +294,35 @@
         list.appendChild(div);
       });
     }
+
+    const latencyEl = $('latency-breakdown');
+    if (latencyEl) {
+      const lat = loadState('lk_last_latency', null);
+      if (!lat) {
+        latencyEl.innerHTML = '<div style="color:var(--tx-3);font-size:0.875rem;">No data yet.</div>';
+      } else {
+        latencyEl.innerHTML = `
+          <div style="display:flex; justify-content:space-between; margin-bottom:8px;"><span>Qdrant (Memory):</span> <span>${lat.qdrant || 0} ms</span></div>
+          <div style="display:flex; justify-content:space-between; margin-bottom:8px;"><span>Tavily (Web):</span> <span>${lat.tavily || 0} ms</span></div>
+          <div style="display:flex; justify-content:space-between; margin-bottom:8px;"><span>Jina (Scraping):</span> <span>${lat.jina || 0} ms</span></div>
+          <div style="display:flex; justify-content:space-between; margin-bottom:8px;"><span>Gemini (LLM):</span> <span>${lat.gemini || 0} ms</span></div>
+          <div style="display:flex; justify-content:space-between; font-weight:bold; color:var(--accent); border-top:1px solid rgba(255,255,255,0.1); padding-top:8px;"><span>Total:</span> <span>${lat.total || 0} ms</span></div>
+        `;
+      }
+    }
   }
 
   // ── SETTINGS ─────────────────────────────────────
   function loadSettings() {
     $('settings-url').value = settings.url;
     $('settings-apikey').value = settings.apiKey;
+    if ($('settings-jina')) $('settings-jina').checked = settings.enableJina;
   }
 
   $('settings-save').addEventListener('click', () => {
     settings.url = $('settings-url').value.trim() || settings.url;
     settings.apiKey = $('settings-apikey').value.trim();
+    if ($('settings-jina')) settings.enableJina = $('settings-jina').checked;
     saveState(LS_KEYS.settings, settings);
     alert('Configuration saved.');
   });
@@ -325,6 +348,112 @@
   // ── INIT ─────────────────────────────────────────
   loadSettings();
   chatInput.focus();
+
+  // ── NEW FEATURES HANDLERS ────────────────────────
+  
+  // Notion Sync
+  const btnSyncNotion = $('btn-sync-notion');
+  if (btnSyncNotion) {
+    btnSyncNotion.addEventListener('click', async () => {
+      btnSyncNotion.textContent = 'Syncing...';
+      const headers = { 'Content-Type': 'application/json' };
+      if (settings.apiKey) headers['X-API-Key'] = settings.apiKey;
+      try {
+        const res = await fetch(settings.url.replace('/discord-bot-receiver', '/tasks'), { headers });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const list = $('notion-tasks-list');
+        list.innerHTML = '';
+        if (data.tasks && data.tasks.length > 0) {
+          data.tasks.forEach(task => {
+            const props = task.properties;
+            const title = props['Task / Project']?.title?.[0]?.plain_text || 'Untitled';
+            const status = props['Status']?.status?.name || 'Unknown';
+            const html = `
+              <div style="border-bottom:1px solid rgba(255,255,255,0.05); padding:12px 0;">
+                <div style="font-weight:600; color:var(--tx-1)">${escapeHtml(title)}</div>
+                <div style="font-size:var(--t-xs); color:var(--tx-3)">Status: <span style="color:var(--accent)">${escapeHtml(status)}</span></div>
+              </div>
+            `;
+            list.innerHTML += html;
+          });
+        } else {
+          list.innerHTML = '<div style="color:var(--tx-3);font-size:0.875rem;">No active tasks found in Notion.</div>';
+        }
+      } catch (err) {
+        $('notion-tasks-list').innerHTML = `<div style="color:var(--warn);font-size:0.875rem;">Error: ${err.message}</div>`;
+      } finally {
+        btnSyncNotion.textContent = 'Sync from Notion';
+      }
+    });
+  }
+
+  // Memory Explorer
+  async function loadMemory() {
+    const list = $('memory-explorer-list');
+    list.innerHTML = '<div style="color:var(--tx-3);font-size:0.875rem;">Loading memory chunks...</div>';
+    const headers = { 'Content-Type': 'application/json' };
+    if (settings.apiKey) headers['X-API-Key'] = settings.apiKey;
+    try {
+      const res = await fetch(settings.url.replace('/discord-bot-receiver', '/memory'), { headers });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      list.innerHTML = '';
+      if (data.memory && data.memory.length > 0) {
+        data.memory.forEach(mem => {
+          const text = mem.text || 'No text content';
+          const html = `
+            <div style="border-bottom:1px solid rgba(255,255,255,0.1); padding:12px 0;">
+              <div style="font-size:var(--t-sm); color:var(--tx-2); line-height:1.5;">${escapeHtml(text)}</div>
+            </div>
+          `;
+          list.innerHTML += html;
+        });
+      } else {
+        list.innerHTML = '<div style="color:var(--tx-3);font-size:0.875rem;">Memory DB is empty.</div>';
+      }
+    } catch (err) {
+      list.innerHTML = `<div style="color:var(--warn);font-size:0.875rem;">Error: ${err.message}</div>`;
+    }
+  }
+  const btnRefreshMemory = $('btn-refresh-memory');
+  if (btnRefreshMemory) {
+    btnRefreshMemory.addEventListener('click', loadMemory);
+  }
+
+  // Health Check
+  const btnCheckHealth = $('btn-check-health');
+  if (btnCheckHealth) {
+    btnCheckHealth.addEventListener('click', async () => {
+      btnCheckHealth.textContent = 'Pinging...';
+      const spans = ['qdrant', 'tavily', 'notion', 'gemini'];
+      spans.forEach(s => $(`health-${s}`).textContent = 'Pinging...');
+      
+      const headers = { 'Content-Type': 'application/json' };
+      if (settings.apiKey) headers['X-API-Key'] = settings.apiKey;
+      try {
+        const res = await fetch(settings.url.replace('/discord-bot-receiver', '/health'), { headers });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        spans.forEach(s => {
+          const el = $(`health-${s}`);
+          if (data[s]) {
+            el.textContent = `${data[s].status.toUpperCase()} (${data[s].latency_ms}ms)`;
+            el.style.color = data[s].status === 'up' ? 'var(--pass)' : 'var(--warn)';
+          } else {
+            el.textContent = 'N/A';
+          }
+        });
+      } catch (err) {
+        spans.forEach(s => {
+          $(`health-${s}`).textContent = 'FAILED';
+          $(`health-${s}`).style.color = 'var(--warn)';
+        });
+      } finally {
+        btnCheckHealth.textContent = 'Ping Services';
+      }
+    });
+  }
 
   // ── BACKGROUND ANIMATION ─────────────────────────
   document.addEventListener('mousemove', e => {
