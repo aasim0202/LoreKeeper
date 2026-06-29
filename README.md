@@ -6,6 +6,21 @@
 
 > Full deployment walkthrough: see [DEPLOYMENT.md](DEPLOYMENT.md).
 
+---
+
+## 🚀 Live Demo (For Hackathon Judges)
+
+To test the live, zero-cost serverless deployment of LoreKeeper:
+
+1. **Open the Live App**: [https://lorekeeper-backend-95620172696.us-central1.run.app/](https://lorekeeper-backend-95620172696.us-central1.run.app/)
+2. **Initialize API Guard**: Click the **Settings (Gear Icon)** in the top right corner of the web UI.
+3. **Configure Settings**:
+   - **API Base URL**: Leave as `/` (it automatically resolves to the Cloud Run backend).
+   - **API Secret Key**: Enter `lorekeeper-judging-key-2026`
+4. **Discord Integration Test**: If you wish to test the Discord bot webhook payload ingestion, send a POST request to:
+   `https://lorekeeper-backend-95620172696.us-central1.run.app/discord-bot-receiver`
+
+---
 ## Architecture
 
 ```text
