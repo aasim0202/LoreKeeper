@@ -6,8 +6,9 @@ load_dotenv()
 
 import json
 import logging
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Security
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Security, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -15,9 +16,10 @@ import time
 import requests
 
 # Inter-module imports
-from src.agent import process_user_query
+from src.agent import process_user_query, process_user_query_stream
 from src.ingestion import fetch_notion_data, fetch_google_tasks
 from src.vector_db import qdrant_client, genai_client
+from src.history import init_db, log_query, get_history
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -27,6 +29,9 @@ app = FastAPI(
     description="FastAPI interface handling Discord payloads and background ingestion.",
     version="3.0"
 )
+
+# Initialize SQLite history on startup
+init_db()
 
 # Enable CORS for local frontend testing
 app.add_middleware(
@@ -92,7 +97,7 @@ def run_background_ingestion():
 # FastAPI API Endpoints
 # ------------------------------------------------------------------
 @app.post("/discord-bot-receiver", dependencies=[Security(verify_api_key)])
-async def discord_bot_receiver(payload: DiscordWebhookPayload):
+async def discord_bot_receiver(payload: DiscordWebhookPayload, background_tasks: BackgroundTasks):
     """
     Accepts incoming JSON payloads from Discord, extracts the user's message, 
     passes it to process_user_query() from src/agent.py, and returns the strict JSON response.
@@ -111,8 +116,19 @@ async def discord_bot_receiver(payload: DiscordWebhookPayload):
             enable_jina=payload.enable_jina
         )
         
-        # Load the structured JSON payload returned by gemini-1.5-flash and return it directly
-        return json.loads(strategy_json_str)
+        result = json.loads(strategy_json_str)
+
+        # Log to history as a non-blocking side effect
+        background_tasks.add_task(
+            log_query,
+            user_message=raw_content,
+            reply=result.get("reply", ""),
+            action_items=result.get("action_items", []),
+            latency=result.get("latency", {}),
+            source="discord" if payload.author != "WebClient" else "web"
+        )
+
+        return result
         
     except Exception as e:
         logger.error(f"Failure in /discord-bot-receiver: {e}")
@@ -138,6 +154,60 @@ async def compile_strategy_alert(background_tasks: BackgroundTasks):
     except Exception as e:
         logger.error(f"Failure in /compile-strategy-alert: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/stream", dependencies=[Security(verify_api_key)])
+async def stream_query(payload: DiscordWebhookPayload):
+    """
+    SSE streaming endpoint that exposes the pipeline stages as discrete events.
+    Returns a text/event-stream response with real-time stage updates and Gemini token streaming.
+    """
+    raw_content = payload.content.strip()
+    if not raw_content:
+        raise HTTPException(status_code=400, detail="Payload content cannot be empty.")
+
+    def event_generator():
+        final_data = None
+        for event in process_user_query_stream(
+            user_message=raw_content,
+            collection_name="lorekeeper_memory",
+            enable_jina=payload.enable_jina
+        ):
+            yield f"data: {json.dumps(event)}\n\n"
+            if event.get("event") == "complete":
+                final_data = event.get("data")
+
+        # Log to history after stream completes
+        if final_data:
+            try:
+                log_query(
+                    user_message=raw_content,
+                    reply=final_data.get("reply", ""),
+                    action_items=final_data.get("action_items", []),
+                    latency=final_data.get("latency", {}),
+                    source="web"
+                )
+            except Exception:
+                pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive"
+        }
+    )
+
+
+@app.get("/history", dependencies=[Security(verify_api_key)])
+async def query_history(limit: int = 20, offset: int = 0):
+    """
+    Returns stored query history with pagination, newest first.
+    """
+    entries = get_history(limit=min(limit, 100), offset=max(offset, 0))
+    return {"status": "success", "entries": entries, "limit": limit, "offset": offset}
 
 
 @app.get("/tasks", dependencies=[Security(verify_api_key)])

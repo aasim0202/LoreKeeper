@@ -72,6 +72,11 @@
               <div class="typing-dot"></div>
             </div>
           </div>
+          <!-- Live Pipeline Timeline -->
+          <div class="pipeline-timeline" id="pipeline-timeline">
+            <div class="pipeline-title">Agent Reasoning Pipeline</div>
+            <div class="pipeline-stages" id="pipeline-stages"></div>
+          </div>
           <div class="chat-input-bar">
             <input type="text" id="chat-input" class="chat-input" placeholder="Message your agent..." autocomplete="off">
             <button class="send-btn" id="send-btn">
@@ -170,6 +175,16 @@
           <h3>Pipeline Latency (Last Query)</h3>
           <div class="recent-list" id="latency-breakdown">
             <div style="color:var(--tx-3);font-size:0.875rem;">No data yet. Make a query to see performance breakdown.</div>
+          </div>
+        </div>
+        <div class="recent-section" style="margin-top: 32px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <h3>Query History (Server)</h3>
+            <button id="btn-load-history" class="send-btn" style="width:auto; padding: 4px 12px; height:auto; min-height:0; border-radius:4px; font-size:12px;">Load History</button>
+          </div>
+          <div id="history-chart" style="display:flex; align-items:flex-end; gap:4px; height:80px; margin-bottom:16px; padding:8px 0;"></div>
+          <div id="history-list" class="recent-list">
+            <div style="color:var(--tx-3);font-size:0.875rem;">Click Load History to fetch server-side query logs.</div>
           </div>
         </div>
       </div>

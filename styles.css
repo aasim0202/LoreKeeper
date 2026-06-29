@@ -363,3 +363,55 @@ ul, ol { list-style: none; }
 }
 .integration-status.configured { background: rgba(0,230,96,0.1); color: var(--accent); }
 .integration-status.missing { background: rgba(248,113,113,0.1); color: var(--fail); }
+
+/* ── PIPELINE TIMELINE ─────────────────────────── */
+.pipeline-timeline {
+  display: none; margin: 0 24px 12px; padding: 16px 20px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--r-lg); animation: fadeIn 0.2s ease-out;
+}
+.pipeline-timeline.active { display: block; }
+.pipeline-title {
+  font-size: 0.6875rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--tx-3); margin-bottom: 12px;
+}
+.pipeline-stages { display: flex; flex-direction: column; gap: 0; position: relative; }
+.pipeline-stage {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 0; position: relative;
+  font-size: 0.8125rem; color: var(--tx-2);
+  animation: fadeIn 0.2s ease-out;
+}
+.pipeline-stage::before {
+  content: ''; position: absolute; left: 9px; top: 28px;
+  width: 1px; height: calc(100% - 12px); background: var(--border);
+}
+.pipeline-stage:last-child::before { display: none; }
+.stage-icon {
+  width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.625rem; z-index: 1;
+}
+.stage-icon.spinning {
+  border: 2px solid var(--border-strong); border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite; background: transparent;
+}
+.stage-icon.done {
+  background: var(--accent); color: var(--tx-inv); font-weight: 700;
+  border: none; box-shadow: 0 0 8px rgba(0,224,96,0.3);
+}
+.stage-icon.error { background: var(--fail); color: white; }
+.stage-label { flex: 1; }
+.stage-latency {
+  font-family: var(--mono); font-size: 0.6875rem; color: var(--tx-3);
+  background: rgba(255,255,255,0.04); padding: 2px 8px; border-radius: var(--r-sm);
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Streaming text preview in timeline */
+.stage-stream-preview {
+  font-family: var(--mono); font-size: 0.75rem; color: var(--tx-3);
+  margin-top: 4px; max-height: 40px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+

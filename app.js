@@ -113,6 +113,10 @@
           </div>`;
         });
       }
+      if (sources.fallback) {
+        panelHtml += '<div class="source-label">System</div>';
+        panelHtml += `<div class="source-item"><span class="source-badge" style="background:rgba(251,191,36,0.1); color:var(--warn);">OSS Fallback</span><div class="source-text">Generated via Smart Switch</div></div>`;
+      }
       panel.innerHTML = panelHtml;
 
       toggle.addEventListener('click', () => {
@@ -139,6 +143,69 @@
     scrollToBottom();
   }
 
+  // ── PIPELINE TIMELINE HELPERS ────────────────────
+  const STAGE_LABELS = {
+    'qdrant_retrieval_started': 'Searching Memory (Qdrant)',
+    'qdrant_retrieval_done': 'Memory Retrieved',
+    'tavily_fetch_started': 'Searching Web (Tavily)',
+    'tavily_fetch_done': 'Web Results Fetched',
+    'jina_scrape_started': 'Scraping URLs (Jina)',
+    'jina_scrape_done': 'URLs Scraped',
+    'gemini_generation_started': 'Generating Response (Gemini)',
+    'fallback_llm_started': 'Switching to OSS Fallback LLM'
+  };
+
+  function showTimeline() {
+    const tl = $('pipeline-timeline');
+    const stages = $('pipeline-stages');
+    stages.innerHTML = '';
+    tl.classList.add('active');
+  }
+
+  function hideTimeline() {
+    $('pipeline-timeline').classList.remove('active');
+  }
+
+  function addTimelineStage(stageName, status, latencyMs, extra) {
+    const stages = $('pipeline-stages');
+    const existing = stages.querySelector(`[data-stage="${stageName}"]`);
+
+    if (existing) {
+      // Update existing stage (started → done)
+      const icon = existing.querySelector('.stage-icon');
+      icon.className = 'stage-icon done';
+      icon.textContent = '✓';
+      const label = existing.querySelector('.stage-label');
+      label.textContent = STAGE_LABELS[stageName] || stageName;
+      if (extra) label.textContent += ` (${extra})`;
+      if (latencyMs !== undefined) {
+        const badge = document.createElement('span');
+        badge.className = 'stage-latency';
+        badge.textContent = `${latencyMs}ms`;
+        existing.appendChild(badge);
+      }
+      return existing;
+    }
+
+    const div = document.createElement('div');
+    div.className = 'pipeline-stage';
+    div.dataset.stage = stageName;
+    const iconClass = status === 'done' ? 'stage-icon done' : 'stage-icon spinning';
+    const iconText = status === 'done' ? '✓' : '';
+    let labelText = STAGE_LABELS[stageName] || stageName;
+    if (extra) labelText += ` (${extra})`;
+
+    div.innerHTML = `<div class="${iconClass}">${iconText}</div><span class="stage-label">${labelText}</span>`;
+
+    if (latencyMs !== undefined) {
+      div.innerHTML += `<span class="stage-latency">${latencyMs}ms</span>`;
+    }
+
+    stages.appendChild(div);
+    return div;
+  }
+
+  // ── CHAT (STREAMING) ────────────────────────────
   async function sendMessage() {
     const message = chatInput.value.trim();
     if (!message) return;
@@ -147,52 +214,119 @@
     chatInput.value = '';
     chatInput.disabled = true;
     sendBtn.disabled = true;
-    typingIndicator.style.display = 'flex';
+    showTimeline();
     scrollToBottom();
 
+    const streamUrl = settings.url.replace('/discord-bot-receiver', '/stream');
     const payload = { content: message, author: 'WebClient', enable_jina: settings.enableJina };
     const headers = { 'Content-Type': 'application/json' };
     if (settings.apiKey) headers['X-API-Key'] = settings.apiKey;
 
+    let geminiText = '';
+    let finalData = null;
+
     try {
-      const response = await fetch(settings.url, {
+      const response = await fetch(streamUrl, {
         method: 'POST', headers, body: JSON.stringify(payload)
       });
+
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
 
-      const reply = data.reply || 'Strategy processed.';
-      const actionItems = data.action_items || [];
-      const sources = data.sources || { memory: [], web: [], jina: [] };
-      const latency = data.latency || null;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-      appendAIMessage(reply, actionItems, sources);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      if (latency) saveState('lk_last_latency', latency);
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep incomplete line in buffer
 
-      // Push action items to Kanban
-      if (actionItems.length > 0) {
-        actionItems.forEach(item => {
-          kanbanData.todo.push({ id: Date.now() + Math.random(), text: item, time: new Date().toISOString() });
-        });
-        saveState(LS_KEYS.kanban, kanbanData);
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const jsonStr = line.slice(6);
+          if (!jsonStr) continue;
+
+          try {
+            const evt = JSON.parse(jsonStr);
+
+            if (evt.event === 'stage') {
+              const name = evt.stage;
+              if (name.endsWith('_started')) {
+                addTimelineStage(name, 'running');
+              } else if (name.endsWith('_done')) {
+                // Mark the corresponding _started as done
+                const startedName = name.replace('_done', '_started');
+                const extra = evt.chunks !== undefined ? `${evt.chunks} chunks`
+                  : evt.results !== undefined ? `${evt.results} results`
+                  : evt.urls !== undefined ? `${evt.urls} urls` : '';
+                addTimelineStage(startedName, 'done', evt.latency_ms, extra);
+              }
+            } else if (evt.event === 'gemini_chunk') {
+              geminiText += evt.text;
+              // Show the Gemini stage as active on first chunk
+              if (geminiText === evt.text) {
+                addTimelineStage('gemini_generation_started', 'running');
+              }
+            } else if (evt.event === 'complete') {
+              finalData = evt.data;
+            } else if (evt.event === 'error') {
+              appendError(evt.message || 'Pipeline error');
+            }
+          } catch {}
+        }
+        scrollToBottom();
       }
 
-      // Update stats
-      statsData.queries++;
-      statsData.actions += actionItems.length;
-      statsData.sources += (sources.memory?.length || 0) + (sources.web?.length || 0);
-      saveState(LS_KEYS.stats, statsData);
+      // Finalize
+      if (finalData) {
+        // Mark gemini as done (will mark as error if it failed, but we just set it to done visually)
+        const gemLatency = finalData.latency?.gemini;
+        addTimelineStage('gemini_generation_started', 'done', gemLatency);
+        
+        if (finalData.sources && finalData.sources.fallback) {
+          const icon = $('pipeline-stages').querySelector(`[data-stage="gemini_generation_started"] .stage-icon`);
+          if (icon) {
+            icon.className = 'stage-icon error';
+            icon.textContent = '!';
+          }
+          addTimelineStage('fallback_llm_started', 'done', gemLatency);
+        }
 
-      // Track recent query
-      recentQueries.unshift({ text: message, time: new Date().toISOString() });
-      if (recentQueries.length > 20) recentQueries.pop();
-      saveState(LS_KEYS.queries, recentQueries);
+        const reply = finalData.reply || geminiText || 'Strategy processed.';
+        const actionItems = finalData.action_items || [];
+        const sources = finalData.sources || { memory: [], web: [], jina: [] };
+        const latency = finalData.latency || null;
+
+        appendAIMessage(reply, actionItems, sources);
+
+        if (latency) saveState('lk_last_latency', latency);
+
+        if (actionItems.length > 0) {
+          actionItems.forEach(item => {
+            kanbanData.todo.push({ id: Date.now() + Math.random(), text: item, time: new Date().toISOString() });
+          });
+          saveState(LS_KEYS.kanban, kanbanData);
+        }
+
+        statsData.queries++;
+        statsData.actions += actionItems.length;
+        statsData.sources += (sources.memory?.length || 0) + (sources.web?.length || 0);
+        saveState(LS_KEYS.stats, statsData);
+
+        recentQueries.unshift({ text: message, time: new Date().toISOString() });
+        if (recentQueries.length > 20) recentQueries.pop();
+        saveState(LS_KEYS.queries, recentQueries);
+      } else {
+        appendError('No response received from the pipeline.');
+      }
 
     } catch (err) {
       appendError(err.message + '. Check Settings to configure your API connection.');
     } finally {
-      typingIndicator.style.display = 'none';
+      setTimeout(hideTimeline, 3000);
       chatInput.disabled = false;
       sendBtn.disabled = false;
       chatInput.focus();
@@ -451,6 +585,79 @@
         });
       } finally {
         btnCheckHealth.textContent = 'Ping Services';
+      }
+    });
+  }
+
+  // History Explorer
+  const btnLoadHistory = $('btn-load-history');
+  if (btnLoadHistory) {
+    btnLoadHistory.addEventListener('click', async () => {
+      btnLoadHistory.textContent = 'Loading...';
+      const list = $('history-list');
+      const chart = $('history-chart');
+      
+      const headers = { 'Content-Type': 'application/json' };
+      if (settings.apiKey) headers['X-API-Key'] = settings.apiKey;
+      try {
+        const res = await fetch(settings.url.replace('/discord-bot-receiver', '/history?limit=30'), { headers });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        
+        list.innerHTML = '';
+        chart.innerHTML = '';
+        
+        if (data.entries && data.entries.length > 0) {
+          // Render List
+          data.entries.forEach(entry => {
+            const timeStr = new Date(entry.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            const totalMs = entry.latency?.total || 0;
+            const srcColor = entry.source === 'discord' ? 'var(--info)' : 'var(--accent)';
+            const html = `
+              <div style="border-bottom:1px solid rgba(255,255,255,0.05); padding:12px 0;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                  <span style="font-weight:600; color:var(--tx-1); font-size:0.875rem;">${escapeHtml(entry.user_message)}</span>
+                  <span style="font-family:var(--mono); font-size:0.6875rem; color:var(--tx-3)">${totalMs}ms</span>
+                </div>
+                <div style="font-size:var(--t-xs); color:var(--tx-3); display:flex; justify-content:space-between;">
+                  <span>Source: <span style="color:${srcColor}">${entry.source}</span></span>
+                  <span>${timeStr}</span>
+                </div>
+              </div>
+            `;
+            list.innerHTML += html;
+          });
+
+          // Render Chart (Bar chart for latency of last N queries)
+          // We reverse to chronological order for the chart
+          const chartData = [...data.entries].reverse();
+          const maxLatency = Math.max(...chartData.map(e => e.latency?.total || 0), 100);
+          
+          chartData.forEach(entry => {
+            const ms = entry.latency?.total || 0;
+            const heightPct = Math.max((ms / maxLatency) * 100, 2);
+            const bar = document.createElement('div');
+            bar.style.flex = '1';
+            bar.style.backgroundColor = 'var(--accent)';
+            bar.style.height = `${heightPct}%`;
+            bar.style.minWidth = '4px';
+            bar.style.borderRadius = '2px 2px 0 0';
+            bar.style.opacity = '0.7';
+            bar.title = `${ms}ms`;
+            
+            // Hover effect
+            bar.addEventListener('mouseenter', () => bar.style.opacity = '1');
+            bar.addEventListener('mouseleave', () => bar.style.opacity = '0.7');
+            chart.appendChild(bar);
+          });
+          
+        } else {
+          list.innerHTML = '<div style="color:var(--tx-3);font-size:0.875rem;">No history found on server.</div>';
+        }
+      } catch (err) {
+        list.innerHTML = `<div style="color:var(--warn);font-size:0.875rem;">Error: ${err.message}</div>`;
+      } finally {
+        btnLoadHistory.textContent = 'Load History';
       }
     });
   }
